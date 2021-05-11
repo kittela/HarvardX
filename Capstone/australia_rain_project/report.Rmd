@@ -1,0 +1,146 @@
+---
+title: "Predicting Rain in Australia"
+author: "Aaron Kittel"
+date: "5/4/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+load("data.RData")
+if (!require(dplyr)) install.packages('dplyr')
+if (!require(caret)) install.packages('caret')
+if (!require(rpart)) install.packages('rpart')
+if (!require(rpart.plot)) install.packages('rpart.plot')
+library(dplyr)
+library(caret)
+library(rpart)
+library(rpart.plot)
+rain_clean <- rain_data %>%
+  select(-Cloud3pm, -Cloud9am, -Evaporation, -Sunshine) %>%
+  mutate(RainToday = factor(ifelse(is.na(RainToday),"No",RainToday)),
+         RainTomorrow = factor(ifelse(is.na(RainTomorrow),"No",RainTomorrow)),
+         Location = factor(Location),
+         WindGustDir = factor(WindGustDir))
+test_index <- createDataPartition(y = rain_clean$RainTomorrow, times = 1,
+                                  p = 0.2, list = FALSE)
+train_set <- rain_clean[-test_index,]
+test_set <- rain_clean[test_index,]
+```
+
+## Introduction
+The goal of this project is to develop a model which can predict whether it will rain in Australia tomorrow with more accuracy than random guessing.  The data used was taken from Kaggle.  It contains 145,460 observations and includes the following variables:
+```{r introduction}
+rain_data %>% colnames()
+```
+"RainTomorrow" is the target variable which we will be predicting.  Using this data, we will create a naive prediction model and use its accuracy as the baseline we will attempt to outperform by training various machine learning models. 
+
+## Analysis
+As we can see from exploring the variables, every observation contains values for "RainToday" and "RainTomorrow". This is significant because it eliminates the need to treat the data as a time series and analysis may be done using random samples. Consequently, we begin our analysis by randomly partitioning the data into training and test sets using an 80/20 split.  We then proceed to create our naive prediction by guessing with 50/50 odds whether it will rain tomorrow or not and check its accuracy.
+```{r 50_50_guess, include=TRUE, echo=TRUE}
+guess_y_hat <- factor(sample(c("Yes","No"), nrow(test_set), replace = TRUE)) %>%
+  factor()
+confusionMatrix(guess_y_hat, test_set$RainTomorrow)$overall['Accuracy']
+```
+Knowing there isn't a daily 50% chance of rain in Australia, we might consider adjusting our naive forecast to make guesses a bit more grounded in reality.  To do so, we check the percentage of days in our training dataset which experienced rain.
+```{r chance_of_rain, include=TRUE, echo=TRUE}
+chance_of_rain <- mean(train_set$RainToday == "Yes")
+chance_of_rain
+```
+We then use this figure to adjust our naive prediction model; guessing it will rain with odds more commensurate with reality.
+```{r chance_of_rain_guess, include=TRUE, echo=TRUE}
+guess_y_hat <- factor(sample(c("Yes","No"), nrow(test_set), replace = TRUE, prob = c(chance_of_rain, 1 - chance_of_rain))) %>%
+  factor()
+confusionMatrix(guess_y_hat, test_set$RainTomorrow)$overall['Accuracy']
+```
+At this point we can see the accuracy increases with a smaller chance of guessing "Yes" for rain tomorrow.  This stands to reason because we have calculated the chance of rain to be approximately 22%.  This means that if we were to only guess "No" for rain every day without exception, our accuracy would be 1 - 0.22, or 0.78.  To test this, we adjust our naive prediction to guess "No" 100% of the time.
+```{r always_no_guess, include=TRUE, echo=TRUE}
+guess_y_hat <- factor(sample(c("Yes","No"), nrow(test_set), replace = TRUE, prob = c(0,1))) %>%
+  factor(levels = c("No", "Yes"))
+confusionMatrix(guess_y_hat, test_set$RainTomorrow)$overall['Accuracy']
+```
+Despite its simplicity, this method results in the highest accuracy and so it will serve as our baseline naive prediction model. However, a more thorough observation of the confusion matrix reveals a concern.
+```{r always_no_cm, include=TRUE, echo=TRUE}
+confusionMatrix(guess_y_hat, test_set$RainTomorrow)
+```
+This model has a sensitivity of 100% and specificity of 0%, meaning we're predicting the days with no rain correctly 100% of the time and the days with rain 0% of the time. Obviously this is unacceptable despite the high accuracy of the model. Consequently, we will use the F-Score to compare our models since it takes both the sensitivity and specificity into consideration.
+```{r always_no_fm, include=TRUE, echo=TRUE}
+F_meas(guess_y_hat, reference = test_set$RainTomorrow)
+```
+So an F-Score of 0.876935 is the metric we will attempt to beat.
+
+  | Method                             | F-Score  |
+  |------------------------------------|----------|
+  | Naive Model                        | 0.876935 |
+
+Before we can begin training any machine learning models, we need to clean our data.  We begin this process by observing how many missing observations ("NA") appear for each variable.
+
+```{r plot_nas, include=TRUE, echo=TRUE, fig.align='center'}
+na_count <- sapply(rain_data, function(x) sum(length(which(is.na(x)))))
+data.frame(names = names(na_count), na_count) %>% 
+    ggplot(aes(x = names, y = na_count, fill = na_count)) +
+    geom_bar(stat = "identity") + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          legend.position = "none") +
+    xlab("Variable") +
+    ylab("NA Count") +
+    scale_fill_gradient(low = "blue", high = "red")
+```
+
+We can clearly see four variables with significant amounts of missing observations: Cloud3pm, Cloud9am, Evaporation, and Sunshine.  We will simply omit these variables from our models since attempting to infer the missing values or omitting such a large amount of observations may be detrimental to our results. We will, however, infer the missing observations in the RainToday and RainTomorrow variables by making the reasonable assumption that a lack of report of rain means no rain for that day.  We will then omit the remaining observations with missing values and factorize all discrete variables.
+```{r clean_data, include=FALSE, echo=FALSE}
+rain_clean <- rain_data %>% 
+  select(-Cloud3pm, -Cloud9am, -Evaporation, -Sunshine) %>%
+  mutate(RainToday = factor(ifelse(is.na(RainToday),"No",RainToday)),
+         RainTomorrow = factor(ifelse(is.na(RainTomorrow),"No",RainTomorrow)),
+         Location = factor(Location),
+         WindGustDir = factor(WindGustDir))
+```
+With our data cleaned, we can begin training machine learning models.  The first we will train is a linear regression model.
+```{r, include=TRUE, echo=TRUE, eval=FALSE}
+linear_fit <- train(RainTomorrow ~ ., data = train_set, method = "glm")
+```
+
+We now acheive an F-Score of 0.8993637.
+
+In this model, we included all variables for training. As we progress through more complicated machine learning models we will find that doing so is too computationally taxing for most personal computers, so at this point it would be prudent for us to consider which variables serve as the most important predictors and only include those going forward.  We can accomplish this by using the varImp function.
+```{r, include=TRUE, echo=TRUE, eval=FALSE}
+varImp(linear_fit)
+```
+This tells us that the RainToday, Humidity3pm, and Rainfall variables account for the majority of our linear regression model's predictive power.  We will use only these variables while training our remaining sample of machine learning models.
+```{r, include=TRUE, echo=TRUE, eval=FALSE}
+lda_fit <- train(RainTomorrow ~ RainToday + Humidity3pm + Rainfall, data = train_set, method = "lda")
+dt_fit <- train(RainTomorrow ~ RainToday + Humidity3pm + Rainfall, data = train_set, method = "rpart")
+rf_fit <- train(RainTomorrow ~ RainToday + Humidity3pm + Rainfall, data = train_set, method = "rf")
+```
+  | Method                             | F-Score  |
+  |------------------------------------|----------|
+  | Naive Model                        | 0.876935 |
+  | Linear Regression Model            | 0.899364 |
+  | Linear Discriminant Analysis       | 0.897190 |
+  | Decision Tree Model                | 0.899777 |
+  | Random Forest Model                | 0.898139 |
+  
+It's apparent that a decision tree achieves the highest F-Score. A review of the training function's documentation shows that this model has one tuning parameter: the Complexity Parameter. We will attempt to optimize this parameter in order to increase our model's F-Score.
+
+```{r, include=TRUE, echo=TRUE, eval=FALSE}
+dt_fit <- train(RainTomorrow ~ RainToday + Humidity3pm + Rainfall, data = train_set, method = "rpart",
+                   tuneGrid = data.frame(cp = seq(0, 0.05, 0.005)))
+```
+
+```{r, include=TRUE, echo=FALSE, eval=TRUE}
+
+```
+
+Doing so shows that the optimized model, using a Complexity Parameter of 0.005, still results in an F-Score of 0.899777.
+
+
+## Results
+
+Our analysis determined that a decision tree model provided the greatest increase in predictive power over the naive model by increasing the F-Score from 0.876935 to 0.899777, and accuracy from 0.7799 to 0.8319.  We also found that the default decision tree parameters were already optimized as optimizing the model's Complexity Parameter resulted in an identical F-Score.
+
+The final model is visualized below.
+
+```{r plot_dt, include=TRUE, echo=TRUE, fig.align='center'}
+rpart.plot(dt_fit, box.palette="RdBu", shadow.col="gray", nn=TRUE)
+```
