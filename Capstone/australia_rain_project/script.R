@@ -7,6 +7,12 @@ library(caret)
 library(rpart)
 library(rpart.plot)
 
+##### PLEASE NOTE #####
+# I've commented out all training of machine learning models below with the exception
+# of the final optimized decision tree model.  As-is, this code should take under
+# 60 seconds to run on a decently spec'd PC.  Should you decide to un-comment the
+# remaining four models, be warned that it may take upwards of 30 minutes to run.
+
 # Saving the current system time  for use in calculating the time it takes to run the code
 start_time <- Sys.time()
 
