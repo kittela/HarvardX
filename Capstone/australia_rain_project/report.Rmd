@@ -1,13 +1,13 @@
 ---
 title: "Predicting Rain in Australia"
 author: "Aaron Kittel"
-date: "5/4/2021"
-output: html_document
+date: "5/11/2021"
+output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
+# Loading the required packages and data. Note that the results from training the machine learning models is either quoted or downloaded from Github.  This is done to prevent this markdown document from having too long of a load time in the event my peers wish to Knit it themselves.  All calculations and visualizations may be verified against the script.R file.
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
-load("data.RData")
 if (!require(dplyr)) install.packages('dplyr')
 if (!require(caret)) install.packages('caret')
 if (!require(rpart)) install.packages('rpart')
@@ -16,6 +16,9 @@ library(dplyr)
 library(caret)
 library(rpart)
 library(rpart.plot)
+url <- "https://github.com/kittela/HarvardX/raw/main/data.RData"
+download.file(url, destfile = basename(url))
+load(basename(url))
 rain_clean <- rain_data %>%
   select(-Cloud3pm, -Cloud9am, -Evaporation, -Sunshine) %>%
   mutate(RainToday = factor(ifelse(is.na(RainToday),"No",RainToday)),
@@ -29,7 +32,7 @@ test_set <- rain_clean[test_index,]
 ```
 
 ## Introduction
-The goal of this project is to develop a model which can predict whether it will rain in Australia tomorrow with more accuracy than random guessing.  The data used was taken from Kaggle.  It contains 145,460 observations and includes the following variables:
+The goal of this project is to develop a model which can predict whether it will rain in Australia tomorrow with more accuracy than random guessing.  The data used was taken from Kaggle.  It contains 145,460 observations with the following variables:
 ```{r introduction}
 rain_data %>% colnames()
 ```
@@ -142,5 +145,13 @@ Our analysis determined that a decision tree model provided the greatest increas
 The final model is visualized below.
 
 ```{r plot_dt, include=TRUE, echo=TRUE, fig.align='center'}
-rpart.plot(dt_fit, box.palette="RdBu", shadow.col="gray", nn=TRUE)
+rpart.plot(dt_fit$finalModel, box.palette="RdBu", nn=TRUE)
 ```
+
+## Conclusion
+
+We were able to develop a machine learning model that provides a moderate increase in accuracy when predicting whether or not it will rain tomorrow in Australia.  Perhaps the most notable limitation of this model lies in the fact that it can predict rain only for the country as a whole and not particular cities. While the city variable was determined to be statistically insignificant by our analysis, a rain prediction model which does not consider specific location could be regarded as largely useless. Future analysis should group observations by the location variable or even consider building separate models for each city.
+
+Additional analysis might also include the transformation, standardization, or binning of continuous variables prior to the determination of their importance. Such techniques could reveal additional insights in our data that may have been missed.
+
+Overall, this decision tree model provided a marked increase in rain prediction accuracy and could serve as a respectable baseline metric for future models to improve upon.

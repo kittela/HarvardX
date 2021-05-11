@@ -1,7 +1,11 @@
 if (!require(dplyr)) install.packages('dplyr')
 if (!require(caret)) install.packages('caret')
+if (!require(rpart)) install.packages('rpart')
+if (!require(rpart.plot)) install.packages('rpart.plot')
 library(dplyr)
 library(caret)
+library(rpart)
+library(rpart.plot)
 
 # Saving the current system time  for use in calculating the time it takes to run the code
 start_time <- Sys.time()
@@ -100,6 +104,12 @@ ggplot(dt_fit, highlight = TRUE)
 dt_y_hat <- predict(dt_fit, test_set) %>% factor(levels = c("No", "Yes"))
 confusionMatrix(dt_y_hat, test_set$RainTomorrow)$overall["Accuracy"]
 F_meas(dt_y_hat, reference = test_set$RainTomorrow)
+
+# Plotting the decision tree
+rpart.plot(dt_fit$finalModel, box.palette="RdBu", shadow.col="gray", nn=TRUE)
+
+# Saving data for use in markdown document
+save(rain_data, dt_fit, file = "data.RData")
 
 # Printing the time it took this code to run
 paste("Time to run:", round(Sys.time() - start_time, 0), "seconds")
